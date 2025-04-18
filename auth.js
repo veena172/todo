@@ -1,20 +1,35 @@
+
+const express = require('express');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+const router = express.Router();
 
-function verifyUser(req, res, next) {
-  const token = req.cookies.token;
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) return res.status(403).json({ error: 'Forbidden' });
-    req.user = decoded;
-    next();
-  });
-}
+router.post('/register', async (req, res) => {
+  const { name, email, password, phone, role } = req.body;
+  const hashed = await bcrypt.hash(password, 10);
+  try {
+    const user = await User.create({ name, email, password: hashed, phone, role });
+    res.status(201).json(user);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
-function requireRole(role) {
-  return function (req, res, next) {
-    if (req.user.role !== role) return res.status(403).json({ error: 'Access denied' });
-    next();
-  };
-}
+router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  const user = await User.findOne({ email });
+  if (!user) return res.status(400).json({ error: 'Invalid credentials' });
 
-module.exports = { verifyUser, requireRole };
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
+
+  const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET);
+  res.cookie('token', token, { httpOnly: true }).json({ message: 'Logged in', role: user.role });
+});
+
+router.post('/logout', (req, res) => {
+  res.clearCookie('token').json({ message: 'Logged out' });
+});
+
+module.exports = router;
